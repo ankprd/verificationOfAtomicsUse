@@ -1,5 +1,5 @@
 //from folly/executors/SerialExecutor.cpp
-//No keepAliveCounter, we'll see about it later
+
 
 class SerialExecutor{
 	Executor parent_;
@@ -38,21 +38,30 @@ class SerialExecutor{
 			delete this;
 	}
 
+  KeepAlive getKeepAliveCounter(Executor* executor){
+    executor->keepAliveAcquire();
+    return KeepAlive(executor, false);
+  }
+
 	KeepAlive create(Executor parent){
 		return KeepAlive(SerialExecutor(parent));
 	}
 }
 
 class KeepAlive{
-	Executor executor_;
+	Executor* executor_;
 
-	KeepAlive(Executor executor) : executor_(executor)
+	KeepAlive(KeepAlive other){
+    *this = getKeepAliveToken(other.get());
+  }
+
+  KeepAlive(Executor* executor, bool v) : executor_(executor){}
 
 	~KeepAlive() {
-		executor.keepAliveRelease();
+		executor->keepAliveRelease();
 	}
 
-	Executor get(){
+	Executor* get(){
 		return executor;
 	}
 

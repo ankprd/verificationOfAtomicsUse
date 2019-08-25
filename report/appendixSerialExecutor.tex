@@ -1,0 +1,82 @@
+We present below a simplified code for the Folly SerialExecutor. What this executor does is explained in more details in Chapter~\ref{ch:serialExec}. The code rulling the behavior of this executor is seperated between \texttt{folly/executors/SerialExecutor.cpp}, \texttt{folly/executors/SerialExecutor.h} and \texttt{folly/Executor.h}. As the code is originally in C++, it makes heavy use of pointers. Remember that in C++, objects are manipulated as values, whereas they are manipulated as references in Java. Hence when passing an object around in C++, if we do not make use of pointers, we make multiple copies, and lose access to the original object. The simplified code presented in Chapter~\ref{ch:serialExec} is redacted in a more Java like simplified language, allowing us to avoid using pointers.
+
+If one were to dive back in the original code, it is worth knowing that the \texttt{Executor} pointer encapsulated by the \texttt{KeepAlive} class is used to store a flag in its least significant bit, on top of storing the actual value of the pointer. This does not cause any problem, as this pointer is aligned in memory to multiples of at least 4 (as it contains some integers). Hence, this pointer is a multiple of 4, and setting its least significant bit to 0 allows us to get back to the original pointer at anytime. We have here remove this flag, as it would always be true in the case of the \texttt{SerialExecutor}.
+
+Finally, in the simplified version presented and proved correct in Chapter~\ref{ch:serialExec}, we removed the \texttt{KeepAlive} class to make the code simpler, and avoided constructors and destructors to replace them with functions \texttt{newSerialExecutor, drop} and \texttt{copy}. It could be interesting to see if it is possible and not too cumbersome to prove a code making use of the \texttt{KeepAlive} class, as well as constructors and destructors.
+
+As a side note, we kept the function names \texttt{keepAliveAcquire} and \texttt{keepAliveRelease}, even though they are unrelated to the actual synchronization used inside of the functions.
+
+\begin{lstlisting}
+class SerialExecutor{
+	Executor parent_;
+	size_t scheduled_; //atomic
+	UnboundedQueue queue_; //multiple producers single consumer
+	int keepAliveCounter_;
+
+	SerialExecutor(parent){
+		parent_ = parent;
+		queue = newQueue();
+		scheduled_ = 0;
+		keepAliveCounter_ = 1;
+	}
+
+	void add(Func func){
+		queue_.enqueue(func);
+		parent_->add({this->run()});
+	}
+
+	void run(){
+		if(scheduled_.fetch_add(1, acquire) > 0)
+			return;
+		do {
+			Func func = queue_.dequeue();
+			func();
+		} while(scheduled_.fetch_sub(1, release) > 1);
+	}
+
+	void keepAliveAcquire(){
+		int c = keepAliveCounter_.fetch_add(1, relaxed);
+	}
+
+	void keepAliveRelease(){
+		int c = keepAliveCounter_.fetch_sub(1, release_acquire);
+		if(c == 1)
+			delete this;
+	}
+
+  KeepAlive getKeepAliveCounter(Executor* executor){
+    executor->keepAliveAcquire();
+    return KeepAlive(executor, false);
+  }
+
+	KeepAlive create(Executor parent){
+		return KeepAlive(SerialExecutor(parent));
+	}
+}
+
+class KeepAlive{
+	Executor* executor_;
+
+	KeepAlive(KeepAlive other){
+    *this = getKeepAliveToken(other.get());
+  }
+
+  KeepAlive(Executor* executor, bool v) : executor_(executor){}
+
+	~KeepAlive() {
+		executor->keepAliveRelease();
+	}
+
+	Executor* get(){
+		return executor;
+	}
+
+	KeepAlive copy(){
+		executor.keepAliveAcquire();
+		return KeepAlive(executor);
+	}
+}
+\end{lstlisting}
+i%\label{fig:fullSerialExec}
+%\caption{C++-like implementation of the Folly SerialExecutor}
+%\end{figure}

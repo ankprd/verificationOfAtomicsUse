@@ -1,0 +1,112 @@
+\section{Folly One Producer One Consumer Queue}
+
+We saw in the previous section that we could not use FSL++ to prove strong results about the glibc reader-writer lock, because it lacked support for both RMW and Loads to the same variable. We will now focus on a different example, using only Store/Load, to avoid encountering this shortcoming again.
+
+This new example is a concurrent fixed size queue. It allows for exactly one producer thread, and one consumer thread. The queue is implemented using a circular buffer, as well as release stores and acquire loads for synchronization. The full code, including some extra function that we will not discuss here is included in Appendix~\ref{app:queue}. We will here use the simplification of the code shown in Figure~\ref{fig:queueCyclic}.
+
+An object \texttt{Queue} contains four fields: its size, an array \texttt{records} of size \texttt{size\_}, and two indexes \texttt{readIndex, writeIndex}. When creating the object, both index are set to $0$. The queue offers two main functions: \texttt{write} which takes an argument and adds it to the queue if it is not full, and \texttt{read} which returns the last element if the queue is not empty. 
+
+Note here that in spite of its name, the read function requires full ownership to the array slot it is reading, as it deletes it when returning it. Hence in spite of its name, it is not enough for this function to have only read permission to the location. This means thatthe producer and consumer threads need to transfer full ownership between one another during those function calls.
+
+\begin{figure}
+\begin{lstlisting}
+bool write(toWrite){
+	int curWrite = Load_Rlx(writeIndex)
+	int nextWrite = (curWrite + 1) % size_
+	int curRead = Load_Acq(readIndex)
+	if(nextWrite != curRead){
+		records[curWrite] = toWrite
+		Store_Rel(writeIndex, nextWrite)
+		return true
+	}
+	return false
+}
+bool read(&valRead){
+	int curRead = Load_Rlx(readIndex)
+	int nextRead = (curRead + 1) % size_
+	int curWrite = Load_Acq(writeIndex)
+	if(curRead == curWrite)
+		return false
+	valRead = records[curRead]
+	delete records[curRead]
+	Store_Rel(readIndex, nextRead)
+	return true
+}
+
+\end{lstlisting}
+		\caption{Simplified code for the Folly one producer one consumer queue}
+		\label{fig:queueCyclic}
+\end{figure}
+
+This code is quite simple. Let us focus on the \texttt{read} function in more detail. This function first reads the current read index. Note that this read is relaxed. It is used here only tom have a nicer interface for the function: as there is only one reader thread, this thread could remember the \texttt{readIndex} value from one call to another, and pass it as an argument to the function, without fundamentally changing the function. We then compute the position of the next slot in the array (which we use as a circular buffer hence the need for \%). The first synchronization then comes in: the value of \texttt{writeIndex} is read with an \texttt{acquire} symchronization. This synchronization ensures that all reads or writes that come after will not be re-ordered before. We then check wether the queue is empty. If not, we store the current record in the reference that was passed as argument to the function, then delete the record. Finally, we use a release store to update the value of \texttt{readIndex}.
+
+\begin{figure}
+		\begin{center}
+\begin{tikzpicture}%
+  \node[%
+  matrix of nodes,%
+  inner xsep=0pt,% <- code added
+  every node/.append style={%
+    draw=white,
+    inner xsep=5pt,
+    inner ysep=5pt,
+    outer sep=0pt,
+  },
+  row sep=0pt,
+  column sep=0pt
+  ] (M) {
+    Producer & Consumer \\
+	records[curWrite] = ... & {} \\
+	{} & {}\\
+	Store\_Rel(writeIndex...) & {} \\
+	{} & {}\\
+	{} & Load\_Acq(writeIndex) \\
+	{} & {}\\
+	{} & val = records[curWrite] \\
+  };
+% horizontal lines
+  \draw[black]({$(M-1-1)!.5!(M-1-2)$} |- M.north) -- ({$(M-1-1)!.5!(M-1-2)$} |- M.south);
+  %\draw[orange!80!black]({$(M-1-2)!.5!(M-1-3)$} |- M.north) --({$(M-1-2)!.5!(M-1-3)$} |- M.south);
+% vertical lines
+    \node[fit=(M-2-1) (M-2-2),inner sep=0pt] (R2) {};
+    \draw[black] (R2.north -| M.west) -- (R2.north -| M.east);
+%hb
+		\draw[red,->,>=latex](M-2-1.west) to[bend right] (M-4-1.west);
+		\draw[green!50!black,->,>=latex](M-4-1.south) to[bend right] (M-6-2.west);
+		\draw[blue,->,>=latex](M-6-2.east) to[bend left] (M-8-2.east);
+\end{tikzpicture}
+\end{center}
+\label{fig:synchQueue}
+\caption{Synchronization in the Folly one producer one consumer queue}
+\end{figure}
+
+
+To better explain the synchronization ensuring that there is no data race on \texttt{records}, we focus on a simple scenario: the producer thread stores a value in \texttt{records}, and the consumer thread then reads it. Part of this scenarion is shown in Figure~\ref{fig:sunchQueue}. The release store to \texttt{writeIndex} ensures that any memory operation happening before it will be visible to other threads when they see the value release. In particular, any thread reading the new value of \texttt{writeIndex} will have the proper value stored in \texttt{records[curWrite]}. This is materialized by the red arrow. Then the acquire load ensures that any memory operation after it will not bere-ordered. In particular, reading in \texttt{records[curWrite]}\footnote{In the more general case, the consumer thread reads in \texttt{records[curRead]}, for simplification reason, we assume here that \texttt{curRead = curWrite}.} will happen after this value was read, as shown by the blue arrow. Finally, as in this scenario the load acquire read the value from the previous release store, we have an ordering between the two shown by the green arrow. There is hence a proper ordering betwenn the write access to \texttt{records[curWrite]} by the producer thread and the read access to it by the reader thread: data races are avoided.
+
+\subsection{Re-using values for location invariants}
+We saw in the previous section about the glibc reader-writer lock the need for $\acqPerm$ predicates, to ensure ownership could not be duplicated, for instance by two threads reading to the same value. The restrictions on this predicate are actually even stronger than what we developped there. The rule for a read\footnote{This rule is slightly simplified, some conditions are required on $\mathcal{Q}$.} in FSL++ is 
+\[
+		\{\acqPerm * \mathsf{Init(\ell)}\} \mathtt{Load\_Acq}(\ell) \{v.\mathsf{Acq}(\ell, \mathcal{Q}[v:=\mathsf{emp}] * \mathcal{Q}(v))\}
+\]
+
+Hence reading value $v$ from a location $\ell$ uses our permission to do so. When the thread next reads the same value from this variable, it will not be able to gain any ownership from it. The only way we could gain ownership twice or more from reading the same value would be by splitting the $\acqPerm$ beforehand, using the following rule
+\[
+		\acqPermp{1} * \acqPermp{2} \equiv \mathsf{Acq}(\ell, \lambda v. \mathcal{Q}_1(v) * \mathcal{Q}_2(v))
+\]
+
+However, as noted when presenting the implemantation of this queue, both the \texttt{read} and \texttt{write} function require full ownership. As full ownership cannot be split into two (or more) full ownership, we cannot apply this rule here. Beside, FSL++ does not contain any rule that would allow for making stronger an $\acqPerm$ permission. 
+
+So, if we were to prove the \texttt{read} code correct, we would need some invariant $\mathcal{Q}$, for the location \texttt{writeIndex} (as the synchronization uses this location). This invariant would need to contain full permission for the slot in the \texttt{records} array that the consumer thread can read. Now after some calls to the \texttt{read} and \texttt{write} functions, we may read the same value again from \texttt{writeIndex}, as the cirular buffer is used again and agin. At this point, since $\mathcal{Q}$ cannot be split while keeping full permission, it has been kept full, and $\acqPerm$ now has $\mathcal{Q}(v) = \mathsf{emp}$. We cannot gain any new ownership. This is the case no matter which location invariant $\mathcal{Q}$ we chose, as long as it contains the full ownership required by the \texttt{read} function. Hence we cannot prove this code to be correct using FSL++.
+
+\subsection{Infinite queue}
+As we have seen above, as the queue implementation uses many times the same slots in the \texttt{records} array, as it is used as a circular buffer, we cannot prove it using FSL++. A simplification that immediatly comes to mind would be to use an infinite array fo r\texttt{records}. The queue would not be limited anymore, and most importantly for us, slots in \texttt{records} are not re-used anymore.
+
+Sadly, here again we were not able to use FSL++ to prove this simplified code correct. The code of the simplification can be found in Appendix~\ref{app:queueNonCyclic}. 
+
+Again, the problem lies in how we store ownership in location invariants. We denote $\mathcal{Q}$ the location invariant of \texttt{writeIndex}. When the producer thread adds a new value to the queue, it updates the value of \texttt{writeIndex}, and hence needs to give up the corresponding assertion $\mathcal{Q}(v)$. Now if the \texttt{read} function is then called, it reads \texttt{writeIndex}, and gets the corresponding $\mathcal{Q(v)}$. However, if this is not the case, \texttt{write} is called again, and gives up $\mathcal{Q}(v + 1)$. The consumer thread calling \texttt{read} will hence have access to $\mathcal{Q}(v + 1)$, but has no way to access $\mathcal{Q}(v)$ again. All the ownership contained in it are lost: neither the producer nor the consumer can gain access to it again.
+
+Here the correctness of this implementation relies on the fact that only the consumer thread can gain ownership through \texttt{writeIndex}, and this variable is always increased by $1$. Hence if the consumer thread reads $1$ then $4$ from it, it is as if it had read $2$ and $3$ as well. We were not able to model this idea using FSL++. This is not a problem when using read-modify-write, as in this case all intermidiate states of the variable are observed by one of the threads, as each write to this variable has to be preceded by a read to it.
+
+Note that it would be tempting here to use the fact that the producer thread begins the \texttt{write} function by reading the value \texttt{writeIndex}. One could imagine that through this read the producer thread can get back the location invariant it previously gave up. However, remember that $\acqPerm$ containing full ownership cannot be split between two threads, as explained for the circular queue. Ths idea hence cannot be used here.
+
+We are hence unable to prove this simplification of the queue to be correct. 

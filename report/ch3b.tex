@@ -1,0 +1,68 @@
+\section{Formalizing the specifications of the \texttt{SerialExecutor}}
+
+To produce a formal proof of the properties described above, we need to rewrite again the code of the serial executor, using only language constructs allowed in FSL++. The main change is the use of a \texttt{protected} non atomic variable to model the ressources the serial executor protects. Instead of pushing tasks \texttt{func} to the queue, we now push some integer value, and executing a task is simply assigning this value to the \texttt{protected} field. We also replace the \texttt{do ... while} loop with a \texttt{repeat}, that repeats its body until it returns a non-zero value. Finally, the \texttt{drop} function now returns the value it read from \texttt{keepAliveCounter\_}, so that we can have a more precise specification of this function. The resulting simplified code is shown in Figure~\ref{fig:serialExecCP}.
+
+\begin{figure}
+	\begin{lstlisting}
+Executor newSerialExecutor(Executor parent, Ress protected){
+  s = alloc();
+  s.protected_ = protected;
+  s.parent_ = parent;
+  s.scheduled_ = 0;
+  s.keepAliveCounter_ = 1;
+  s.queue_ = new Queue();
+  return s;
+}
+
+void add(int f, Executor s){
+	s.queue_.enqueue(f);
+	s.parent_.add({this->run()});
+}
+
+void run(Executor s){
+	if(s.scheduled_.fetch_add(1, acquire) > 0) {}
+	else{
+		repeat (
+			a = s.queue_.dequeue();
+			s.protected_.set(a);
+			s.scheduled_.fetch_sub(1, release) > 1
+		)
+	}
+}
+
+int drop(Executor s){
+	int c = s.keepAliveCounter_.fetch_sub(1, release_acquire);
+	if(c == 1)
+		free(s);
+	return c;
+}
+
+Executor copy(Executor s){
+	s.keepAliveCounter_.fetch_add(1, relaxed);
+	return s;
+}
+	\end{lstlisting}
+
+
+	\caption{FSL++ compatible Serial Executor code}
+	\label{fig:serialExecCP}
+\end{figure}
+
+Verifying our first property, that is to say that the executor garantees sequential execution now amounts to proving that when the write to \texttt{s.protected\_} happens in the \texttt{add} function, we currently have full ownership of the \texttt{s.protected\_} location, which can be rewritten as $\mathtt{protected\_^1}$.
+
+Verifying the second property simply requires showing that when calling \texttt{is.queue\_.dequeue()}, a thread holds the assertion $\consQ$, and when calling \texttt{s.queue\_.enqeue()} it holds $\prodQ$.
+
+Finally, for the final property, we need to show that there exists a predicate $\mathsf{SE_{\lambda}(s)}$ such that the function specifications shown in Figure~\ref{fig:seFctSpec} hold. This predicate is parametrized by a ghost location we will define in further detail later. For the sake of simplicity, we remove the dependancy on the \texttt{protected} location from this predicate.
+
+\begin{figure}
+\[
+		\{\exists f \in \mathbb{Q} \cap (0, 1) * \texttt{protected}^1\} \mathtt{newSerialExecutor(parent, protected)} \{s. \exists \lambda. \mathsf{RE}_\lambda (s)\}
+\]
+
+\[
+		\{\sePred\} \mathtt{add(f, s)} \{\sePred\}				
+\]
+
+		\caption{Serial executor fonctions specifications}
+		\label{fig:seFctSpec}
+\end{figure}
