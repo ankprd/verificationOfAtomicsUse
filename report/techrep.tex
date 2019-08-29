@@ -10,6 +10,7 @@
 
 
 \usepackage{todonotes}
+\usepackage{url}
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{float}
@@ -20,6 +21,7 @@
 \usepackage[nottoc,numbib]{tocbibind}
 \usepackage{dashbox}
 \usepackage{listings}
+\usepackage{mathtools}
 \usepackage{xcolor}
 \lstset { %
 	tabsize=2,
@@ -30,11 +32,11 @@
 \usepackage{tikz}
 \usetikzlibrary{matrix, fit, calc}
 
-\title{Denotational semantics for weak memory concurrency} 
+\title{Verifying weak memory programs in the Viper ecosystem} 
 
 \author{Anouk Paradis}
 
-\date{July, 2018}
+%\date{July, 2018}
 
 
 
@@ -55,14 +57,14 @@
 \newcommand\efcp[2]{\ghost{\lambda :(#1, #2)^{+}}}
 \newcommand\efcm[2]{\ghost{\lambda :(#1, #2)^{-}}}
 \newcommand\acqPerm{\operatorname{\mathsf{Acq}}(\ell, \mathcal{Q})}
-\newcommand\acqPermp[1]{\operatorname{\mathsf{Acq}}(\ell, \mathcal{Q_{#1}})}
+\newcommand\acqPermp[1]{\operatorname{\mathsf{Acq}}(\ell, \mathcal{Q}_{#1})}
 \newcommand\relPerm{\operatorname{\mathsf{Rel}}(\ell, \mathcal{Q})}
 \newcommand\rmwPerm{\operatorname{\mathsf{RMWAcq}}(\ell, \mathcal{Q})}
 
 
 \newcommand\consQ{\mathsf{Consumer}(\texttt{s.queue})}
 \newcommand\prodQ{\mathsf{Producer}(\texttt{s.queue})}
-\newcommand\sePred{\mathsf{SE}_\lambda(s)}
+\newcommand\sePred{\mathsf{SE}_\gamma(s)}
 
 
 \newcommand\blankpage{%
@@ -84,8 +86,8 @@
 %----------------------------------------------------------------------------------------
 
 %\textsc{\LARGE \'Ecole polytechnique}\\[1.5cm] % Name of your university/college
-\textsc{\Large Research internship report}\\[0.5cm] % Major heading such as course name
-\textsc{\Large Non confidential}\\[0.5cm] % Major heading such as course name
+\textsc{\Large Research in Computer Science Project Report}\\[0.5cm] % Major heading such as course name
+%\textsc{\Large Non confidential}\\[0.5cm] % Major heading such as course name
 %\textsc{\large Minor Heading}\\[0.5cm] % Minor heading such as course title
 
 %----------------------------------------------------------------------------------------
@@ -121,7 +123,9 @@ PM Group\\
 ETH\\
 \textcolor{white}{lala}\\
 
+\large
 Pr.~Alexander J.\textsc{Summers}\\ % Supervisor's Name
+\small
 PM Group\\
 ETH
 \end{flushright}
@@ -141,7 +145,7 @@ ETH
 %   LOGO SECTION
 %----------------------------------------------------------------------------------------
 
-\includegraphics[width=3cm]{/home/anouk/2018/packageLatexPolytechnique/source/polytechnique-logovert.pdf}\\[1cm] % Include a department/university logo - this will require the graphicx package
+%\includegraphics[width=3cm]{/home/anouk/2018/packageLatexPolytechnique/source/polytechnique-logovert.pdf}\\[1cm] % Include a department/university logo - this will require the graphicx package
  
 %----------------------------------------------------------------------------------------
 
@@ -162,22 +166,9 @@ ETH
 \afterpage{\blankpage}
 
 \chapter{Introduction}
-Concurrent programs opened the way for tremendous gains of performance, and are now everywhere in our environment, from mobile phones to critical plants control. In spite of their ominpresence, their subtle functionning is still poorly understood, and there is not yet any fully satisfactory model for any widely used programming language, such as Java or C++. The need for such a model is patent : weak memory behaviors are not only non deterministic, that is to say they do not occur at every execution of a program, but they also depend on the processor used, and the optimizations the compiler performed. Bugs hence are not often exposed, and become difficult to detect, and even more difficult to track down. Furthermore, relying solely on testing, even extensive, and programmer's folklore about what should or should not happen means that the introduction of a new processor or compiler optimisation could uncover new behaviors in a program.
-
-However, when designing such a model, one is faced with two opposing challenges. To allow for reasoning and verification of programs, the model should provide strong garanties about the permitted behaviors. Alas, it should also allow for performance, and hence for the counterintuitive relaxed behaviors hardware and compiler optimisations may introduce.
-
-On top of those two antagonistic intents, such a model should have the following characteristics to be fully usable. First, as most programs today are not built as one monolithic block of code, but rather as mutliple interconnected blocks, that might even be running on different processors, the model should aim for compositionality\cite{BattyRoyalSoc}. That is to say it should allow reasoning on the whole program to be the composition of reasoning on each block. Second, it should be usable by programmers. This can be done through different means. First the model should aim to be as simple and intuitive as possible. A simulator of the model on simple executions, as was provided by \cite{BOSSW11} for the C++11 standard is also of great help. Such a simulation is not always yet possible, for instance for \cite{KHLVD17}, as it requires quantification over all future possible memory states. Another important way to improve usability of the model is the so-called DRF-SC theorem. This theorem relies on the notion of sequential consistency \cite{LamportSC} : the behavior of a program is sequentially consistent if it can be explained by a simple interleaving of the different threads actions. The DRF-SC theorem is then stated as : if a program is data race free for any sequentially consistent execution, then all its executions (even the relaxed ones) do not exhibit any behavior that is not exhibited by a sequentially consistent execution. It is extremely usefull, as it allows programmers to completely ignore weak memory behaviors when building a program with a strong lock discipline. Hence only programs with a strong need of performance need to deal with weak memory behaviors.
-
-
-\paragraph{Note :} The topic of my internship was initially "An RCU specification in fixed C++ concurrency". However it changed to focus on working on the memory model itself, as it was not yet usable for an application to the RCU algorithm.
-
-\paragraph{Contributions}
-When I began my internship, a simple language and its semantics had already been defined, as well as a model that could deal with dependancies. A more complicated model had also been defined to deal with fences and ordering. However, it did not work properly for many widely accepted small programs.
-At the end of my four months internship, we were able to develop a different model, using the idea of dependency developped in the first model, that could also deal with fences and atomics, as they are defined in the C++ language. It behaves properly on the litmus tests demonstrating many weak behaviors introduced by Power Multiprocessors, as presented by \cite{powerMultiProc}. We also defined a similar model for non atomics and locks and were able to prove that the DRF-SC theorem holds for this simplified model.
-Finally, these models are built compositionaly, that is to say we have a representation even of incomplete programs, and can compose them together. This could allow for reasoning on a subpart of a program, and using those results when reasoning on a whole program.
-
-
+\input{introduction.tex}
 \chapter{Background and related work}
+\label{ch:background}
 djksljflkdsjfldks
 
 fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
@@ -189,17 +180,16 @@ fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
 \chapter{Limitations of FSL++}
 \input{ch2.tex}
 \input{ch2b.tex}
-\chapter{New proven examples}
+\chapter{Proving intertwined synchronization mechanisms}
 \input{ch3.tex}
 \input{ch3b.tex}
+\input{ch3c.tex}
+
 \chapter{Conclusion and Future work}
 
 \section{}
 \addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
 %\input{chapters/appendix}
-\input{appendixGlibcRW.tex}
-\input{appendixSerialExecutor.tex}
-
 \addtocontents{toc}{\protect\setcounter{tocdepth}{0}}
 \cleardoublepage
 \phantomsection
@@ -207,6 +197,11 @@ fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
 \addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
 \bibliographystyle{plain}
 \bibliography{techrep}
+
+\appendix
+\input{appendixGlibcRW.tex}
+\input{appendixQueue.tex}
+\input{appendixSerialExecutor.tex}
 
 
 \end{document}
