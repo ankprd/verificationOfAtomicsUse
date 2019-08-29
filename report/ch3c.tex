@@ -1,0 +1,202 @@
+\section{Proof of the specifications}
+We will now prove each of the formalized specifications defined in the previous section. To do so, we define a location invariant for \texttt{s.scheduled\_} and \texttt{s.keepAliveCounter\_}, and explicit the $\sePred$ predicate.
+
+
+\begin{definition}[\texttt{scheduled\_} invariant]
+For a location x, we define the following map, from values to assertions
+\[
+		\mathcal{Q}_{x}(c) = c \geq 0 \land \text{ if } c = 0 \text{ then }\mathtt{protected\_}^1 * \consQ \text{ else } \mathsf{emp}
+\]
+\end{definition}
+
+This invariant simply contains ownership of the \texttt{protected\_} ressource, as well as predicate encoding consuming elements from the queue.
+
+\begin{definition}[\texttt{keepAliveCounter\_} invariant]
+For a location x and a ghost location $\gamma$, we define the following map, from values to assertions
+		\begin{align*}
+				\mathcal{R}_{\gamma, x}(c) &= c \geq 0 \land \text{ if } c = 0 \text{ then } \ghost{\gamma : (0, 0)^-} * \mathtt{s.queue\_}^1 * \mathtt{s.parent\_}^1 \\ 
+				&\text{ else } \exists f \in \mathbb{Q} \cap [0, 1]. \mathtt{s.parent\_}^f * \ghost{\gamma : (c, 1 - f)^-}
+\end{align*}
+\end{definition}
+
+This invariant uses the EFC permission structure for the ghost state $\gamma$. It is almost identical to the invariant defined in \cite{gaurav} for the proof of the Rust ARC.
+
+Finally, we define the predicate $\sePred$.
+
+\begin{definition}[Serial executor ressource]
+		\begin{align*}
+				\sePred &= \mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{U}(\mathtt{s.keepAliveCounter\_}, \mathcal{P}) \\ 
+				&* \prodQ * \exists q \in \mathbb{Q} \cap (0, 1]. \mathtt{s.parent\_}^q *\mathtt{s.queue\_}^q \\
+				&* \ghost{\gamma : (1, q)^+}
+		\end{align*}
+
+\end{definition}
+
+In this definition, we use $\mathsf{U}(\ell, \mathcal{R})$ as a shortcut for $\mathsf{Rel}(\ell, \mathcal{R}) * \mathsf{RMWAcq}(\ell, \mathcal{R}) * \mathsf{Init}(\ell)$, as is done in \cite{fsl}.
+
+We can now set out to prove that all of the formal properties outlined in the previous sections hold.
+
+\subsection{Function \texttt{newSerialExecutor}}
+
+\begin{figure}
+\begin{equation*}
+\begin{array}{l}
+	\mathtt{newSerialExecutor(parent, protected)} \\
+	
+	\left\{\mathtt{protected}^1 \right\}\\
+
+	\mathtt{s = alloc()}\\
+			\left\{
+			\begin{array}{l}
+				\mathsf{RMWAcq}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{Rel}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \\ 
+					\mathsf{RMWAcq}(\mathtt{s.keepAliveCounter\_}, \mathcal{R}) * \mathsf{Rel}(\mathtt{s.keepAliveACounter\_}, \mathcal{R}) * \\
+					\mathtt{s.protected\_}^1 * \mathtt{s.parent\_}^1 * \mathtt{s.queue\_}^1 * \mathtt{protected}
+			\end{array}
+		\right\} \\
+
+	\mathtt{s.protected\_ = protected} \\
+	\mathtt{s.parent\_ = parent} \\
+
+	\left\{
+			\begin{array}{l}
+				\mathsf{RMWAcq}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{Rel}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \\ 
+					\mathsf{RMWAcq}(\mathtt{s.keepAliveCounter\_}, \mathcal{R}) * \mathsf{Rel}(\mathtt{s.keepAliveACounter\_}, \mathcal{R}) * \\
+					 \mathtt{s.parent\_}^1 * \mathtt{s.queue\_}^1 * \mathtt{protected}
+			\end{array} \right\} \\
+
+			\mathtt{s.queue\_ = new Queue()} \\
+
+	\left\{
+			\begin{array}{l}
+				\mathsf{RMWAcq}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{Rel}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \\ 
+					\mathsf{RMWAcq}(\mathtt{s.keepAliveCounter\_}, \mathcal{R}) * \mathsf{Rel}(\mathtt{s.keepAliveACounter\_}, \mathcal{R}) * \\
+					 \mathtt{s.parent\_}^1 * \mathtt{s.queue\_}^1 * \mathtt{protected} * \consQ * \prodQ
+			\end{array} \right\} \\
+
+			\mathtt{Store\_Rel(s.scheduled\_, 0)} \\
+
+	\left\{
+			\begin{array}{l}
+				\mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{RMWAcq}(\mathtt{s.keepAliveCounter\_}, \mathcal{R}) * \\
+					\mathsf{Rel}(\mathtt{s.keepAliveACounter\_}, \mathcal{R}) * \ghost{\gamma : (0, 0)^-}\\
+				\mathtt{s.parent\_}^1 * \mathtt{s.queue\_}^1 * \prodQ
+			\end{array} \right\} \\
+
+			\mathtt{Store\_Rlx(s.keepAliveCounter\_, 1)} \\
+
+	\left\{
+			\begin{array}{l}
+				\mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{Q}) * \mathsf{U}(\mathtt{s.keepAliveCounter\_}, \mathcal{R}) * \\
+					\mathtt{s.parent\_}^1 * \mathtt{s.queue\_}^1 * \prodQ * \ghost{\gamma : (1, 1)^+}
+			\end{array} \right\} \\
+
+
+
+\end{array}
+\end{equation*}
+
+		\caption{Proof outline for the \texttt{newSerialExecutor} function}
+		\label{fig:proofNew}
+		%\caption{Proof outline for the \texttt{newSerialExecutor} function}
+
+\end{figure}
+
+The proof outline of this function is given in Figure~\ref{fig:proofNew}. We use here that a ghost state can be introduced anytime, to introduce $\ghost{\gamma: (0. 0)^-}$. When the protected ressource \texttt{protected} is affected to the field \texttt{s.protected\_}, we remove the ownership of the latter, to model the fact that both now refer to the same object.
+
+
+\subsection{Function \texttt{add}}
+Verifying this function is trivial, as the Serial Executor predicate $\sePred$ contains the predicate $\prodQ$ allowing to push elements to the queue.
+
+\subsection{Function \texttt{run}}
+
+\begin{figure}
+\begin{equation*}
+		\begin{array}{l}
+		\left\{\sePred \right\} \\
+		\mathtt{run(s)} \\
+		\left\{\sePred \right\} \\
+		\mathtt{c = s.scheduled\_.fetch\_add(1, acquire)} \\
+		\left\{ \sePred * (c = 0 ? \mathtt{protected\_}^1 * \consQ : \mathsf{emp}) \right\}\\
+		\mathtt{if(c > 0) \{\}}\\
+		\mathtt{else} \\
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{y = repeat (} \\
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{a = s.queue\_.dequeue()} \\
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{s.protected\_.set(a)} \\
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{c = s.scheduled\_.fetch\_sub(1, release)}\\	
+		\left\{ \sePred * (c = 1 ? \mathsf{emp} : \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{(c > 1)}\\
+		\mathtt{) end}\\
+		\left\{ y. \sePred \land (c = 1) \right\}
+\end{array}
+\end{equation*}
+
+		\caption{Proof outline for the \texttt{run} function}
+		\label{fig:run}
+		%\caption{Proof outline for the \texttt{run} function}
+\end{figure}
+
+The proof outline for this function is shown in Figure~\ref{fig:run}. To prove the fetch and add, we need to prove that
+\begin{equation*}
+		\begin{array}{l}
+	\left\{\sePred \right\} \\
+		\mathtt{c = s.scheduled\_.fetch\_add(1, acquire)} \\
+		\left\{ \sePred * (c = 0 ? \mathtt{protected\_}^1 * \consQ : \mathsf{emp}) \right\}
+\end{array}
+\end{equation*}
+
+For this we use the fetch and add rule outlined in \cite{fsl}. We first need the fact that $\mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{R})$ is included in $\sePred$, and that the former is duplicable. We hence have that $\sePred \equiv \sePred * \mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{R})$. We now choose $\mathcal{P}_{send} = \mathsf{emp}$ and $\mathcal{P}_{keep} = \sePred$. We hence need to show that for any value $t \geq 0$, we have
+
+\begin{equation*}
+		\begin{array}{l}
+		\left\{ \mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{R}) * \mathsf{emp}
+		\right\}\\
+				\mathsf{CAS}_{acquire}(\mathtt{s.scheduled\_}, t, t + 1) \\
+		\left\{
+				\begin{array}{l}
+						y. (y = t \land \mathcal{R}(t)) \lor (y \neq t \land \mathsf{U}(\mathtt{s.scheduled\_}, \mathcal{R}) * \mathsf{emp})
+				\end{array}
+		\right\}
+		\end{array}
+\end{equation*}
+
+This compare and swap is now trivial to prove, as the only two cases are $t = 0$ and $t \neq 0$.
+
+We now move on to the \texttt{repeat} instruction. To prove it correct, we use the following rule:
+
+\begin{equation*}
+		\begin{array}{l}
+			\left\{P\right\} E \left\{y.Q\right\} \\
+			Q\left[0 / y \right] \Rightarrow P \\
+				\frac{}{\textcolor{white}{\left\{ P\right\} \texttt{repeat} E \texttt{end} \left\{ y.iiiiiiiiiiiiiii Q \land y \neq 0 \right\}}}\\
+			\left\{ P\right\} \texttt{repeat} E \texttt{end} \left\{ y. Q \land y \neq 0 \right\}
+		\end{array}
+\end{equation*}
+
+We hence need to prove that 
+
+\begin{equation*}
+	\begin{array}{l}
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{a = s.queue\_.dequeue(); s.protected\_.set(a);} \\
+		\left\{ \sePred * \mathtt{protected\_}^1 * \consQ \right\} \\
+		\mathtt{c = s.scheduled\_.fetch\_sub(1, release)} \\
+			\left\{ \sePred * (c = 1 ? \mathsf{emp} : \mathtt{protected\_}^1 * \consQ \right\}
+	\end{array}
+\end{equation*}
+
+The only non trivial part is making sure that the fetch and sub cannot read 0 from \texttt{s.scheduled\_}. This simply requires the $CAS-\bot$, and the fact that $\ell^1 * \ell^1 \equiv \bot$: we cannot have more than $1$ amount of permission for a single location (\texttt{s.scheduled\_} here). This concludes the proof.
+
+Note that here, we have that when a \texttt{dequeue()} operation is done, the predicate $\consQ$ holds, as well as the fact that when writting to \texttt{s.protected\_}, we have $\mathtt{s.protected\_^1}$.
+
+\subsection{Functions \texttt{drop} and \texttt{copy}}
+The proof of those functions is exactly the same as the one of the \texttt{copy} and \texttt{drop} functions provided for the Rust ARC in \cite{gaurav}.
+
+\subsection{Some notes on constructors and destructors}
+Here the \texttt{drop} function only gives back permission to \texttt{s.parent\_} and \texttt{s.queue\_}. This is because as explained in the beginning of this chapter, the serial executor is not fully deleted when all references to it are removed. The actual queue (and note the reference to it stored in \texttt{s.queue\_}) and protected location are freed only when all tasks submitted to the executor have been executed, on top of the deletion of the executor. It would be interesting to further dwelve into the original code of the executor, to pinpoint the mechanism ensuring this deletion, and try to model it in FSL++.
+
+Besides, as we model here the constructor of the serial executor as a \texttt{new} function, we have to use a release synchronization for the initialization of \texttt{s.scheduled\_}, This synchronization is not present in the code, and is only needed here because we could not model the construction of an object properly: the fields of this object can only be accessed once its creation (and initialization happening within) have been finished.
+
