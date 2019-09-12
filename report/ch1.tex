@@ -1,7 +1,45 @@
+\label{sec1}
 In this chapter, we will use the Folly library reader writer lock \cite{follyRW} to explicit some limitations of the EFC monoid defined in \cite{gaurav} and the token-based reasoning developped in \cite{pascal}. While, as we will see, those limitations can easily be overcome using some simple tricks, they make reasoning less intuitive, and those tools harder to use.
 
 \section{The Folly reader-writer spinlock}
 The Folly reader-writer lock is used to allow multiple threads to access concurrently a shared resource \emph{res}, with either reader or writer priviledge. This lock allows multiple reader threads to access \emph{res} concurrently, but makes sure that if a thread has write access, all other threads are forbidden from reading or writing to it. The (simplified) implementation of this lock is shown in Figure~\ref{fig:follyRWL}. This implementation is taken from \cite{gaurav}.
+
+\begin{figure}
+	\begin{lstlisting}
+	bool  try_lock_shared ()
+{
+	v0:=fetch_and_add_acq(bits,4)//RMW1
+	if(lsb(v0) == 1) {
+		v1:=fetch_and_add_rel(bits,−4)//RMW2
+		res :=  false
+	}
+	else {
+		res := true
+	}
+	return  res
+}
+
+void  unlock_shared () {
+	x:=fetch_and_add_rel(bits,−4)
+}
+
+bool  try_lock () {
+	v:=CAS_rel_acq(bits,0,1)
+	return (v == 0)
+}
+
+void  unlock(bool  getRead) {
+	x:=fetch_and_and_rel(bits,∼1)
+}
+
+void  unlock_and_lock_shared () {
+	x:=fetch_and_add_acq(bits,4)//RMW1
+	unlock(true)
+}
+	\end{lstlisting}
+\caption{Folly RW lock implementation (from \cite{gaurav})}
+		\label{fig:follyRWL}
+\end{figure}
 
 The idea of the implementation is quite simple. It uses an atomic location \emph{bits}. The least significant bit of \emph{bits} (which we will denote as \emph{lsb(bits)})indicates wether or not there is currently a thread with write access, while \emph{bits / 4} indicates the number of threads currently having or attempting to have a read access. When a thread wanting a read access to \emph{res} calls the function \texttt{try\_lock\_shared()}, it first increments \emph{bits} by 4. Then it checks for the value \emph{lsb(bits)} had when it was incremented by 4. If it is null, then there is currently no writer thread. The call to \texttt{try\_lock\_shared} succeeded, and the calling thread got read access. If it is not null, the thread decrements \emph{bits} by 4 and the call failed: no access is gained. To release a reader lock, a thread simply decrements the \emph{bits} variable by 4, using the \texttt{unlock shared function}. To get a write-lock, a thread calls \texttt{try\_lock}, which simply atomically checks if \emph{bits} is 0 (that is to say there is no reader thread or thread currently attempting to get read access), and if so changes it to 1. Finally, to release a writer-lock, \emph{lsb(bits)} is simply set to 0.
 
@@ -47,7 +85,7 @@ $$\{\Uperm\}\texttt{bool try\_lock()} \{y. (y ? \wPerm : \Uperm)\}$$
 
 While this invariant and specifications seem quite straightforward, they are not sufficient to prove correctness of the \texttt{unlock\_shared} function. Let us go through the proof.
 
-We use the fetch-and-add rule shown in Figure~\ref{fig:faaddRule}, using $\mathcal{P}_{\text{send}} = \rPerm$ and $\mathcal{P}_{\text{keep}} = \emp$. It is hence sufficient to show that for all values  $v \geq 0$, we have that 
+We use the fetch-and-add rule shown in Figure~7 of \cite{fsl}, using $\mathcal{P}_{\text{send}} = \rPerm$ and $\mathcal{P}_{\text{keep}} = \emp$. It is hence sufficient to show that for all values  $v \geq 0$, we have that 
 
 \[
 \begin{array}{l}
@@ -57,7 +95,7 @@ We use the fetch-and-add rule shown in Figure~\ref{fig:faaddRule}, using $\mathc
 \end{array}\]
 
 To do so, we use disjunction.
-If $v < 4$ and $\texttt{lsb}(v) = 0$, we have that $\mathcal{Q}(v) \Rightarrow \efcm{0}{0} * \text{true}$ (we here use that $(0, x)$ is in the domain of the EFC permission structure if and only if $x = 0$). We hence have that $\mathcal{Q}(v) * \efcp{1}{0} \Rightarrow \text{false}$, as $\efcp{1}{0} \oplus \efcm{0}{0}$ is undefined. The \textsc{cas}-$\bot$ rule shown in Figure~\ref{fig:} then allows us to conclude this case.
+If $v < 4$ and $\texttt{lsb}(v) = 0$, we have that $\mathcal{Q}(v) \Rightarrow \efcm{0}{0} * \text{true}$ (we here use that $(0, x)$ is in the domain of the EFC permission structure if and only if $x = 0$). We hence have that $\mathcal{Q}(v) * \efcp{1}{0} \Rightarrow \text{false}$, as $\efcp{1}{0} \oplus \efcm{0}{0}$ is undefined. The \textsc{cas}-$\bot$ rule from \cite{fsl} then allows us to conclude this case.
 
 The second case is $v < 4$ and $\texttt{lsb}(v) = 1$. In this case we have that $\mathcal{Q}(v) \Rightarrow \efcm{1}{1}$. We hence have again that  $\mathcal{Q}(v) * \efcp{1}{0} \Rightarrow \text{false}$, as $\efcp{1}{0} \oplus \efcm{1}{1}$ is undefined. We then use the \textsc{cas}-$\bot$ rule again.
 
