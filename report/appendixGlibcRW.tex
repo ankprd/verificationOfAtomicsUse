@@ -1,14 +1,14 @@
 \chapter{Glibc reader writer lock implementation}
 \label{app:glibc}
-We show below a simplification of the code of the glibc \texttt{pthread\_rwlock}\cite{glibcRW}. In the following, we use the following abreviations: Acq for acquire, Rel for release and Rlx for relaxed. While a lot of care was taken when transcribing this code, it may still be possible that some errors can still be found, as a lot of simplifications were needed from the original code to this one.
+We show below a simplification of the code of the glibc \texttt{pthread\_rwlock}\cite{glibcRW}. In the following, we use the following abbreviations: Acq for acquire, Rel for release and Rlx for relaxed. While a lot of care was taken when transcribing this code, it may still be possible that some errors can be found, as a lot of simplifications were needed from the original code to this one.
 
-The original code offers the possibility to prefer writers over readers. We removed the code allowing this. We also removed extra variables that were used for futex. These variable allowed threads to be added to a wait queue, until a particular change to the variable awoke them. This avoided the need for constant spinning on the \texttt{readers\_\_} location. The correctness of the lock is not affected by those variables (though non-blocking properties would).
+The original code offers the possibility to prefer writers over readers. We removed the code allowing this. We also removed extra variables that were used for futex. These variables allowed threads to be added to a wait queue, until a particular change to the variable awoke them. This avoided the need for constant spinning on the \texttt{readers\_\_} location. The correctness of the lock is not affected by those variables. %(though non-blocking properties would).
 
 The constant \texttt{WRLOCKED} allows us to directly access the second least significant bit, denoting if there is a thread requesting or having write access, while \texttt{WRPHASE} corresponds to the least significant bit, telling if the lock is in read or write phase.
 
 The number of threads currently having or requesting write access to the lock is \texttt{\_\_readers / 8}, as the third least significant bit is used in the actual implementation. We do not mention it here, as it is only used when using the lock in a particular mode we are not interested in here. 
 
-The CAS instruction here updates the value of \texttt{r} with the value it read from \texttt{readers\_\_}. This is done by passing a reference to \texttt{r} to the custom compare and swap in the original code. We removed the explicit reference, but need to keep in mind this update.
+In this code, each CAS instruction not only reads and updates the value of \texttt{readers\_\_}, it also updates the value of \texttt{r} with the value it read in \texttt{readers\_\_}. This is done by passing a reference to \texttt{r} to the custom compare and swap in the original code. We removed the explicit reference, but need to keep in mind this update.
 
 \begin{lstlisting}
 Constants:
@@ -23,7 +23,8 @@ int readLock(){
 		if(CAS_Acq(__readers, &r, r ^ WRPHASE))
 			return 0;
 	}
-	//there is a writer (maybe in waiting), it will get us to read mode at some point
+	//there is a writer (maybe in waiting), 
+	//it will get us to read mode at some point
 	while(Load_Acq(__readers) & WRPHASE == 0){;}
 }
 
@@ -78,7 +79,7 @@ int writeUnlock(l){
 
 \section{Implementation explanation}
 
-Let us now explain in a bit more details how this code works. Note that this is not necessary to understand why we cannot use FSL++ to prove this code. It is however interesting, as it provides a completely different approach to the reader writer lock than the one offered by the Folly librabry \cite{follyRW}.
+Let us now explain in a bit more details how this code works. Note that this is not necessary to understand why we cannot use FSL++ to prove this code. It is however interesting, as it provides a completely different approach to the reader writer lock than the one offered by the Folly library \cite{follyRW}.
 
 To approach this code, we will first outline the protocol readers and writer abide by, and then explain how each function uses and enforces that protocol.
 
@@ -93,22 +94,22 @@ To approach this code, we will first outline the protocol readers and writer abi
 
 		\subsection{Required synchronization}
 		\label{synchGlib}
-We want to make sure this lock enforces proper synchronization, that is to say there cannot be any data races on the location it protects from multiples threads using the lock. To enforce this it is sufficient to make sure that every unlock contains a release write to \texttt{readers\_\_}, while every lock contains an acquire read to this location. The release write forbids any memory actions from the first thread to be re-ordered past the write, which synchronizes with the acquire read reading from it, and the latter forbids any memory actions by the second thread to be re-ordered before the read. It is not sufficient to have an acquire load in the lock function for this to hold: this acquire has to be the one that signals the lock begin acquired, that is to say the last one before the function returns. Thoes conditions are satisfied by the lock and unlock functions of this thread. We will hence not mention these synchronization in the remainder of this section.
+We want to make sure this lock enforces proper synchronization, that is to say there cannot be any data races on the location it protects from multiples threads using the lock. To enforce this it is sufficient to make sure that every unlock contains a release write to \texttt{readers\_\_}, while every lock contains an acquire read to this location. The release write forbids any memory actions from the first thread to be re-ordered past the write, which synchronizes with the acquire read reading from it, and the latter forbids any memory actions by the second thread to be re-ordered before the read. It is not sufficient to have an acquire load in the lock function for this to hold: this acquire has to be the one that signals the lock begin acquired, that is to say the last one before the function returns. Those conditions are satisfied by the lock and unlock functions of this thread. We will hence not mention these synchronization points in the remainder of this section.
 
 		\subsection{\texttt{readLock()} function}
 
-		Let us first focus on the read lock. This function first increases \texttt{readers\_\_} by 8, that is to say signals itself as a new aspiring writer. It then checks what used to be the value $r$ of \texttt{readers\_\_} before it incremented it. If this value indicated a reader phase (that is to say \texttt{r \&\& WRPHASE} $ = 0$), the read lock was acquired and the function returns. If \texttt{r} indicated a write phase, there are two cases. If there is no writer thread currently (that is to say \texttt{r \&\& WRLOCKED} $= 0$), the function tries to set the phase to read. This is done in a loop, as the attempt may fail if sime other reader thread incremented \texttt{readers\_\_} in the meanwhile. This loop is repeated until it succeeds, or some other thread sets the phase to read, or some writer thread gets the lock (by setting the least second bit to 1). If the loop did not succeed, we are in one of the two following cases: either some other reader thread has set the phase to read, either some write thread got the lock. In both cases, it is hence enough to wait until we read that the phase is now read. In the latter case, we rely on the first part of the unlock etiquette given in Definition~\ref{gracious}.
+		Let us first focus on the read lock. This function first increases \texttt{readers\_\_} by 8, that is to say signals itself as a new aspiring reader. It then checks what used to be the value $r$ of \texttt{readers\_\_} before it incremented it. If this value indicates a reader phase (that is to say \texttt{r \&\& WRPHASE} $ = 0$), the read lock was acquired and the function returns. If \texttt{r} indicates a write phase, there are two cases. If there is no writer thread currently (that is to say \texttt{r \&\& WRLOCKED} $= 0$), the function tries to set the phase to read. This is done in a loop, as the attempt may fail if sime other reader thread incremented \texttt{readers\_\_} in the meanwhile. This loop is repeated until it succeeds, or some other thread sets the phase to read, or some writer thread gets the lock (by setting the least second bit to 1). If the loop did not succeed, we are in one of the two following cases: either some other reader thread has set the phase to read, or some write thread got the lock. In both cases, it is enough to wait until we read that the phase is now read. In the latter case, we rely on the first part of the unlock etiquette given in Definition~\ref{gracious}.
 
 		\subsection{\texttt{writeLock()} function}
 
-		The \texttt{writeLock()} function first uses a fetch and or to set the \texttt{WRLOCKED} bit to 1. It then checks what used to be the value \texttt{r} of \texttt{readers\_\_}. If \texttt{r \&\& WRLOCKED} $= 0$, it succeeding in signalling itself and can move on. If it is not the case, the fetch and or had no effect, the current thread was not registered as an aspiring writer. It hence needs to enter a loop, trying to set this bit from 0 to 1, using a compare and swap. This loop uses a relaxed load to lessen the synchronization: this load checks on \texttt{readers\_\_}, and if it notices that the compare and swap could succeed (ie the second least significant bit is 0), the \texttt{if} statement containing the compare and swap is attempted\footnote{When the compare and swap is attempted, it updates the value of \texttt{r}. If it fails, we can hence skip reading (using the relaxed load) \texttt{readers\_\_} again, using the \texttt{continue}}. 
+		The \texttt{writeLock()} function first uses a fetch and or to set the \texttt{WRLOCKED} bit to 1. It then checks what used to be the value \texttt{r} of \texttt{readers\_\_}. If \texttt{r \&\& WRLOCKED} $= 0$, it succeeded in signaling itself and can move on. If it is not the case, the fetch and or had no effect: the current thread was not registered as an aspiring writer. It hence needs to enter a loop, trying to set this bit from 0 to 1, using a compare and swap. This loop uses a relaxed load to lessen the synchronization: this load checks on \texttt{readers\_\_}, and if it notices that the compare and swap could succeed (ie the second least significant bit is 0), the \texttt{if} statement containing the compare and swap is attempted\footnote{When the compare and swap is attempted, it updates the value of \texttt{r}. If it fails, we can hence skip reading (using the relaxed load) \texttt{readers\_\_} again, using the \texttt{continue}.}. 
 
-		Once the second least significant bit of \texttt{readers\_\_} has been successfully set to 1, we check if we are in read phase. If this is the case, we simply return (note that the latest read to \texttt{readers\_\_} is then the compare and swap acquire, or the fetch and or acquire, fulfilling the conditions of section~\ref{synchGlib}). If this is not the case, either there are no readers, in which case we try to set the phase to write using another compare and swap. We keep trying this until we either succeed, or there are readers. If we did not succeed, we then check on \texttt{readers\_\_} until it is in write phase, relying on Definition~\ref{gracious}.
+		Once the second least significant bit of \texttt{readers\_\_} has been successfully set to 1, we check if we are in read phase. If this is the case, we simply return (note that the latest read to \texttt{readers\_\_} is then the compare and swap acquire, or the fetch and or acquire, fulfilling the synchronization conditions outlined in section~\ref{synchGlib}). If this is not the case, either there are no readers, in which case we try to set the phase to write using another compare and swap. We keep trying this until we either succeed, or there are readers. If we did not succeed, we then check on \texttt{readers\_\_} until it is in write phase, relying on Definition~\ref{gracious}.
 
 		\subsection{\texttt{readUnlock()} function}
 
-		This functions simply repeatedly attemps a compare and swap until it succeeds. The new value is chosen so that we respect~\ref{gracious}: if there are no more readers, and an aspiring writer, we set the phase to write.
+		This functions simply repeatedly attemps a compare and swap until it succeeds. The new value is chosen so that we respect Definition~\ref{gracious}: if there are no more readers, and an aspiring writer, we set the phase to write.
 
 		\subsection{\texttt{writeUnlock()} function}
 
-		Similarly, this function uses a compare and swap, and sets the phase to read if there are any aspiring writer.
+		Similarly, this function uses a compare and swap, and sets the phase to read if there are any aspiring readers.

@@ -10,6 +10,7 @@
 
 
 \usepackage{todonotes}
+\usepackage{hyperref}
 \usepackage{url}
 \usepackage{caption}
 \usepackage{subcaption}
@@ -18,7 +19,7 @@
 \usepackage{tikz}
 \usepackage{booktabs} 
 \usepackage{subcaption}
-\usepackage[nottoc,numbib]{tocbibind}
+\usepackage[nottoc]{tocbibind}
 \usepackage{dashbox}
 \usepackage{listings}
 \usepackage{mathtools}
@@ -165,14 +166,18 @@ ETH
 
 \afterpage{\blankpage}
 
+%Bien relus: intro, ch1 et ch2
+%A relire background et ccl
+%A reprendre d'apres rqs de Gaurav: ch3
+
 \chapter{Introduction}
 \input{introduction.tex}
-\chapter{Background and related work}
+\chapter{Background}
 \label{ch:background}
 \input{background.tex}
-djksljflkdsjfldks
+%djksljflkdsjfldks
 
-fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
+%fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
 
 \chapter{Ease of use limitations of the EFC ghost location and tokens}
 \input{ch1.tex}
@@ -186,16 +191,16 @@ fetch and add  + cas - false rules (fig 3 et 4 de gaurav p/13)
 \input{ch3b.tex}
 \input{ch3c.tex}
 
-\chapter{Conclusion and Future work}
+\chapter{Conclusion and future work}
 \input{conclusion.tex}
 %\section{}
-\addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
+%\addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
 %\input{chapters/appendix}
-\addtocontents{toc}{\protect\setcounter{tocdepth}{0}}
-\cleardoublepage
-\phantomsection
-\addcontentsline{toc}{chapter}{\protect\numberline{}Bibliography}
-\addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
+%\addtocontents{toc}{\protect\setcounter{tocdepth}{0}}
+%\cleardoublepage
+%\phantomsection
+%\addcontentsline{toc}{chapter}{\protect\numberline{}Bibliography}
+%\addtocontents{toc}{\protect\setcounter{tocdepth}{-1}}
 \bibliographystyle{plain}
 \bibliography{techrep}
 

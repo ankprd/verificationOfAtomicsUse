@@ -1,6 +1,6 @@
 \chapter{Serial Executor implementation}
 \label{app:serialExec}
-We present below a simplified code for the Folly SerialExecutor. What this executor does is explained in more details in Chapter~\ref{ch:serialExec}. The code rulling the behavior of this executor can be found in the following files:
+We present below a simplified code for the Folly SerialExecutor. What this executor does is explained in more details in Chapter~\ref{ch:serialExec}. The code ruling the behavior of this executor can be found in the following files:
 \begin{itemize}
 	\item \url{https://github.com/facebook/folly/blob/master/folly/executors/SerialExecutor.cpp}
 	\item \url{https://github.com/facebook/folly/blob/master/folly/executors/SerialExecutor.h}
@@ -20,7 +20,7 @@ class SerialExecutor{
 	Executor parent_;
 	size_t scheduled_; //atomic
 	UnboundedQueue queue_; //multiple producers single consumer
-	int keepAliveCounter_;
+	int keepAliveCounter_; //atomic
 
 	SerialExecutor(parent){
 		parent_ = parent;
@@ -86,6 +86,6 @@ class KeepAlive{
 	}
 }
 \end{lstlisting}
-i%\label{fig:fullSerialExec}
+%\label{fig:fullSerialExec}
 %\caption{C++-like implementation of the Folly SerialExecutor}
 %\end{figure}

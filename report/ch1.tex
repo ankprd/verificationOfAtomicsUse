@@ -1,8 +1,8 @@
 \label{sec1}
-In this chapter, we will use the Folly library reader writer lock \cite{follyRW} to explicit some limitations of the EFC monoid defined in \cite{gaurav} and the token-based reasoning developped in \cite{pascal}. While, as we will see, those limitations can easily be overcome using some simple tricks, they make reasoning less intuitive, and those tools harder to use.
+In this chapter, we will use the Folly library reader writer lock \cite{follyRW} to explicit some limitations of the EFC monoid defined in \cite{gaurav} and the token-based reasoning developed in \cite{pascal}. While, as we will see, those limitations can easily be overcome using some simple tricks, they make reasoning less intuitive, and those tools harder to use.
 
 \section{The Folly reader-writer spinlock}
-The Folly reader-writer lock is used to allow multiple threads to access concurrently a shared resource \emph{res}, with either reader or writer priviledge. This lock allows multiple reader threads to access \emph{res} concurrently, but makes sure that if a thread has write access, all other threads are forbidden from reading or writing to it. The (simplified) implementation of this lock is shown in Figure~\ref{fig:follyRWL}. This implementation is taken from \cite{gaurav}.
+The Folly reader-writer lock is used to allow multiple threads to access concurrently a shared resource \emph{res}, with either reader or writer privilege. This lock allows multiple reader threads to access \emph{res} concurrently, but makes sure that if a thread has write access, all other threads are forbidden from reading or writing to it. The (simplified) implementation of this lock is shown in Figure~\ref{fig:follyRWL}. This implementation is taken from \cite{gaurav}.
 
 \begin{figure}
 	\begin{lstlisting}
@@ -41,7 +41,7 @@ void  unlock_and_lock_shared () {
 		\label{fig:follyRWL}
 \end{figure}
 
-The idea of the implementation is quite simple. It uses an atomic location \emph{bits}. The least significant bit of \emph{bits} (which we will denote as \emph{lsb(bits)})indicates wether or not there is currently a thread with write access, while \emph{bits / 4} indicates the number of threads currently having or attempting to have a read access. When a thread wanting a read access to \emph{res} calls the function \texttt{try\_lock\_shared()}, it first increments \emph{bits} by 4. Then it checks for the value \emph{lsb(bits)} had when it was incremented by 4. If it is null, then there is currently no writer thread. The call to \texttt{try\_lock\_shared} succeeded, and the calling thread got read access. If it is not null, the thread decrements \emph{bits} by 4 and the call failed: no access is gained. To release a reader lock, a thread simply decrements the \emph{bits} variable by 4, using the \texttt{unlock shared function}. To get a write-lock, a thread calls \texttt{try\_lock}, which simply atomically checks if \emph{bits} is 0 (that is to say there is no reader thread or thread currently attempting to get read access), and if so changes it to 1. Finally, to release a writer-lock, \emph{lsb(bits)} is simply set to 0.
+The idea of the implementation is quite simple. It uses an atomic location \emph{bits}. The least significant bit of \emph{bits} (which we will denote as \emph{lsb(bits)})indicates whether or not there is currently a thread with write access, while \emph{bits / 4} indicates the number of threads currently having or attempting to have a read access. When a thread wanting a read access to \emph{res} calls the function \texttt{try\_lock\_shared()}, it first increments \emph{bits} by 4. Then it checks for the value \emph{lsb(bits)} had when it was incremented by 4. If it is null, then there is currently no writer thread. The call to \texttt{try\_lock\_shared} succeeded, and the calling thread got read access. If it is not null, the thread decrements \emph{bits} by 4 and the call failed: no access is gained. To release a reader lock, a thread simply decrements the \emph{bits} variable by 4, using the \texttt{unlock\_shared} function. To get a write-lock, a thread calls \texttt{try\_lock}, which simply atomically checks if \emph{bits} is 0 (that is to say there is no reader thread or thread currently attempting to get read access), and if so changes it to 1. Finally, to release a writer-lock, \emph{lsb(bits)} is simply set to 0.
 
 \section{Proof using the EFC permission structure}
 As explained in more detail in Chapter~\ref{ch:background}, the EFC permission structure is based on the idea of giving entities, containing some amount of permission and a token, to each thread that asks for it. We then record the number of tokens, and the total amount of permission that were distributed, to be able to track if full permission is available or not. 
@@ -58,7 +58,7 @@ $$\wPerm = \ress{1} * \ghost{\lambda:(1, 1)^+}$$
 
 Here a read permission is tracked with a token and some non null amount of permission $\ghost{\lambda :(1, q)^+}$, while a write permission corresponds to the full permission 1: $\ghost{\lambda:(1, 1)^+}$. The source $\ghost{\lambda :(n, s)^{-}}$ in the invariant tracks the number $n$ of tokens that were given away, as well as the amount of permission $s$ that was given along. Finally, in the \texttt{try\_lock\_shared} function, a thread may increment the location \emph{bits} without actually gaining any permission, if there is already a writer thread along. In this case, the thread temporarily gets an empty token, with no permission $\ghost{\lambda:(1, 0)^+}$.  We show in Figure~\ref{fig:specRWFolly} the function specifications we would like to prove. 
 
-Note that here the tokens represented by the ghost location do not hold any permission by themsleves, they are simply used to track the permission that is actually transmitted through $\ress{q}$.
+Note that here the tokens represented by the ghost location do not hold any permission by themselves, they are simply used to track the permission that is actually transmitted through $\ress{q}$.
 
 \begin{figure}
 		$$\Uperm \texttt{bool try\_lock\_shared()}\{y. (y ? \rPerm : \emp)\}$$
@@ -90,7 +90,7 @@ We use the fetch-and-add rule shown in Figure~7 of \cite{fsl}, using $\mathcal{P
 \[
 \begin{array}{l}
 \{\Uperm * \rPerm\} \\
-\texttt{CAS}^{\text{rel}}(\texttt{bits}, v, v - 4) \\
+\texttt{CAS}_{\text{rel}}(\texttt{bits}, v, v - 4) \\
 \{y. (y = v \land \emp) \lor (y \neq v \land \Uperm * \rPerm)\}
 \end{array}\]
 
@@ -99,10 +99,10 @@ If $v < 4$ and $\texttt{lsb}(v) = 0$, we have that $\mathcal{Q}(v) \Rightarrow \
 
 The second case is $v < 4$ and $\texttt{lsb}(v) = 1$. In this case we have that $\mathcal{Q}(v) \Rightarrow \efcm{1}{1}$. We hence have again that  $\mathcal{Q}(v) * \efcp{1}{0} \Rightarrow \text{false}$, as $\efcp{1}{0} \oplus \efcm{1}{1}$ is undefined. We then use the \textsc{cas}-$\bot$ rule again.
 
-The proof then fails for the case $v \ge 4$ and $\texttt{lsb}(v) = 1$. In this case, we would like to use again the \textsc{cas}-$\bot$ rule: in our implementation, this can never happen, as we cannot at the same time have given a write permission (as denoted by $\texttt{lsb}(v) = 1$) and a read permission (currently owned by the thread calling \texttt{unlock\_shared}). However, the invariant fails to capture this idea. The only information we can get from it here is that the amount of permission that was given away in total is $1$. For instance an invariant containing the ghost location $\ghost{\lambda:(3, 1)^-}$ could denote either that 3 readers each got permission 1/3 to the resource, or 1 writer got full permission, and two threads are trying to get reader access (and are currently running the \texttt{try\_lock\_shared} function). We could not express using only one ghost locationt that the first case cannot happen.
+The proof then fails for the case $v \ge 4$ and $\texttt{lsb}(v) = 1$. In this case, we would like to use again the \textsc{cas}-$\bot$ rule: in our implementation, this can never happen, as we cannot at the same time have given a write permission (as denoted by $\texttt{lsb}(v) = 1$) and a read permission (currently owned by the thread calling \texttt{unlock\_shared}). However, the invariant fails to capture this idea. The only information we can get from it here is that the amount of permission that was given away in total is $1$. For instance an invariant containing the ghost location $\ghost{\lambda:(3, 1)^-}$ could denote either that 3 readers each got permission 1/3 to the resource, or 1 writer got full permission, and two threads are trying to get reader access (and are currently running the \texttt{try\_lock\_shared} function). We could not express using only one ghost location that the first case cannot happen.
 
 While this example shows that the EFC permission structure is a bit less expressive than we can think it to be at first sight, this proof can easily be made to work using one extra ghost location, as is done in \cite{gaurav}. This extra ghost location captures exactly the information we showed was lacking before: is there currently a thread owning write permission?
 
-It is interesting to note that this problem is not encountered in the Rust Atomic Reference Counter proof using an EFC ghost state developped in \cite{gaurav}. This is simply because in this case, we only ever give away read accesses. It can hence be hardcoded in the invariant that the amount of permission given away is always strictly less than 1.
+It is interesting to note that this problem is not encountered in the Rust Atomic Reference Counter proof using an EFC ghost state developed in \cite{gaurav}. This is simply because in this case, we only ever give away read accesses. It can hence be hardcoded in the invariant that the amount of permission given away is always strictly less than 1.
 
 
