@@ -20,22 +20,22 @@ class ProducerConsumerQueue{
 	}	
 
 	bool write(Arg recordArg){
-		int currentWrite = Load_Rlx(writeIndex_);
+		int currentWrite = load_rlx(writeIndex_);
 		int nextRecord = currentWrite + 1;
 		if(nextRecord == size_){
 			nextRecord = 0;
 		}
-		if(nextRecord != Load_Acq(readIndex_)){
+		if(nextRecord != load_Acq(readIndex_)){
 			records[currentWrite] = new T(recordArg);
-			Store_Rel(writeIndex_, nextRecors);
+			store_rel(writeIndex_, nextRecors);
 			return true;
 		}
 		return false;
 	}
 
 	bool read(T& record){
-		int currentRead = Load_Rlx(readIndex_);
-		if(currentRead == Load_Acq(writeIndex_))
+		int currentRead = load_rlx(readIndex_);
+		if(currentRead == load_acq(writeIndex_))
 			return false; //queue is empty
 		int nextRecord = currentRead + 1;
 		if(nextRecord == size_){
@@ -43,26 +43,26 @@ class ProducerConsumerQueue{
 		}
 		record = records_[currentRead];
 		records_[currentRead].~T();
-		Store_Rel(readIndex_, nextRecord);
+		store_rel(readIndex_, nextRecord);
 		return true;
 	}
 
 	T* frontPtr(){
-		int currentRead = Load_Rlx(readIndex_);
-		if(currentRead == Load_Acq(writeIndex_))
+		int currentRead = load_rlx(readIndex_);
+		if(currentRead == load_acq(writeIndex_))
 			return nullptr;//queue is empty
 		return &records_[currentRead];
 	}
 	
 	bool isEmpty() const {
-		return Load_Acq(readIndex_) == Load_Acq(writeIndex_);
+		return load_acq(readIndex_) == load_acq(writeIndex_);
 	}
 
 	bool isFull() const {
-		int nextRecord = Load_Acq(writeIndex_) + 1;
+		int nextRecord = load_Acq(writeIndex_) + 1;
 		if(nextRecord == size_)
 			nextRecord = 0;
-		if(nextRecord != Load_Acq(readIndex_));
+		if(nextRecord != load_Acq(readIndex_));
 			return false;
 		return true;
 	}
@@ -70,7 +70,7 @@ class ProducerConsumerQueue{
 	//if called by consumer, true size may be more
 	//if called by producer true size may be less
 	size_t sizeGuess() const {
-		int ret = Load_Acq(writeIndex_) - Load_Acq(readIndex_);
+		int ret = load_Acq(writeIndex_) - load_Acq(readIndex_);
 		if(ret < 0)
 			ret += size_;
 		return ret;

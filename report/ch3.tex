@@ -1,10 +1,10 @@
 \label{ch:serialExec}
-In this chapter we will focus on a new example from the Folly library: the Serial Executor \cite{serialExec}. This example makes use of two independent synchronization mechanisms, using two atomic locations. We will show how FSL++ allows us to prove those two mechanisms almost independently.% We prove here some properties about this example using the EFC permission structure and FSL++. 
+In this chapter we will focus on a new example from the Folly library: the Serial Executor \cite{serialExec}. This example makes use of two independent synchronization mechanisms, using two atomic locations. We will show how FSL++ allows us to prove those two mechanisms almost independently. % We prove here some properties about this example using the EFC permission structure and FSL++. 
 We have not proven it in the proof framework developed in \cite{pascal}, but we believe that this would be possible.
 
 To the best of our knowledge, this is the first proof of this executor in FSL++,  as well as the only example making use of more than one synchronization mechanism.
 
-We now describe in more details this new example. An \emph{executor} is a tool that allows a thread to delegate the execution of a task. The thread simply adds this task to the executor, and the executor guarantees that the task will be executed at some point. Depending on the type of executor, the executor may provide some extra guarantees on the execution order of the task submitted to it. The executor we all know of is the CPU scheduler: it has many tasks to execute (everything currently running on the computer mostly) and schedules them as it sees fit.
+We now describe in more details this new example. An \emph{executor} is a tool that allows a thread to delegate the execution of a task. The thread simply adds this task to the executor, and the executor guarantees that the task will be executed at some point. Depending on the type of executor, the executor may provide some extra guarantees on the execution order of the task submitted to it. The executor we all know of is the CPU scheduler: it has many tasks to execute (everything currently running on the computer) and schedules them as it sees fit.
 
 The Folly Serial Executor is an executor that guarantes that all the tasks submitted to it will be executed serially: no two of them will be executed concurrently. %The Folly Serial Executor allows a thread to delegate the execution of a task, by simply adding this task to the executor. Depending on its characteristics, the executor will then execute this task depending on its priority, or sequentially as is the serial executor case, or any other ordering. This is quite similar to what a thread scheduler does: it is given some tasks (the threads execution), and then choses when and how to run them.
 %In the case of the serial executor, the executor ensures that all the tasks that are added to it are executed sequentially. 
@@ -17,7 +17,7 @@ Besides, a serial executor guarantees that even if it is deleted, the tasks that
 
 
 \section{Implementation}
-A simplified implementation of the executor is shown in Figure~\ref{fig:simplSerialExec}. This code is quite different from the original, as it was originally divided among two classes, and used pointers, as well as customs destructors. A code more faithful to the original can be found in the Appendix~\ref{app:serialExec}. 
+A simplified implementation of the executor is shown in Figure~\ref{fig:simplSerialExec}. This code is quite different from the original, as it was originally divided among two classes, and used pointers as well as customs destructors. A code more faithful to the original can be found in Appendix~\ref{app:serialExec}. 
 
 \begin{figure}
 	\begin{lstlisting}
@@ -36,22 +36,22 @@ void add(Func func, Executor s){
 }
 
 void run(Executor s){ //private function
-	if(s.scheduled_.fetch_add(1, acquire) > 0)
+	if(fetch_add_acq(s.scheduled_, 1) > 0)
 		return;
 	do {
 		Func func = s.queue_.dequeue();
 		func();
-	} while(s.scheduled_.fetch_sub(1, release) > 1);
+	} while(fetch_sub_rel(s.scheduled_, 1) > 1);
 }
 
 void drop(Executor s){
-	int c = s.keepAliveCounter_.fetch_sub(1, release_acquire);
+	int c = fetch_sub_rel_acq(s.keepAliveCounter_, 1);
 	if(c == 1)
 		free(s);
 }
 
 Executor copy(Executor s){
-	s.keepAliveCounter_.fetch_add(1, relaxed);
+	fetch_add_rlx(s.keepAliveCounter, 1);
 	return s;
 }
 	\end{lstlisting}
@@ -62,32 +62,32 @@ Executor copy(Executor s){
 \end{figure}
 
 
-An executor is made of four fields. The field \texttt{queue\_} is used to record the tasks that are submitted to the executor. The field \texttt{parent\_} refers to another executor: the one that is the serial executor's parent. Indeed, the serial executor is merely a middleman here. It records the tasks that are submitted to it (which we will call OT) in the queue of the \texttt{queue\_} field, and using this queue creates new tasks (NT) that it then add to its parent, another executor, not necessarily serial. Those NT tasks use the \texttt{scheduled\_} field to synchronize between one another, making sure that only one of them executes a OT tasks at any point in time. The NT tasks may execute concurrently, but they make sure not to concurrently run the OT tasks.
+An executor is made of four fields. The field \texttt{queue\_} is used to record the tasks that are submitted to the executor. The field \texttt{parent\_} refers to another executor: the one that is the serial executor's parent. Indeed, the serial executor is merely a middleman here. It records the tasks that are submitted to it (which we will call OT) in the queue of the \texttt{queue\_} field, and using this queue creates new tasks (NT) that it then add to its parent, another executor, not necessarily serial. Those NT tasks use the \texttt{scheduled\_} field to synchronize between one another, making sure that only one of them executes OT tasks at any point in time. The NT tasks may execute concurrently, but they make sure not to concurrently run the OT tasks.
 %The field \texttt{parent\_} refers to its parent executor, the one it will delegate the tasks to. Indeed, this serial executor is merely a middleman here. It records all the tasks that are submitted to it, then transforms them into one continuous task that it submits to its parent, another executor.\footnote{There is no infinite delegation here, at some point the executor's parent will be the CPU scheduler directly.} Note that we will hence be talking about two different kinds of tasks in the following dicsussion: the ones that were submitted to the serial executor, and the new ones that the serial executor created and submitted to its parent executor. The field \texttt{queue\_} is used to record the task to be executed. The queue that is used here is a concurrent single consumer multiple producer queue. The field \texttt{scheduled\_} is used to ensure sequential execution. 
 Finally the field \texttt{keepAliveCounter\_} is used to track the number of references to this executor, and deleting it when there are no references to it anymore. The \texttt{scheduled\_} and \texttt{keepAliveCounter\_} fields are atomic locations.
 
 \subsection{Ensuring sequential execution}
-Let us now describe the functions of the serial executor interface. The \texttt{add} one is quite straightforward. It adds a new task, here denoted by \texttt{func}, to the executor \texttt{s}. This is done by simply adding the task to the queue, and sending a new task to the parent executor: running the serial executor \texttt{run} function. Because the parent is an executor, it guarantees that this \texttt{run\_} function will be executed at some later point in time. Besides, this \texttt{run\_} function is private and only called by the \texttt{add\_} function in the serial executor class. We hence have that there will be exactly one execution of \texttt{run\_} for each call to \texttt{add\_}. 
+Let us now describe the functions of the serial executor interface. The \texttt{add} one is quite straightforward. It adds a new task, here denoted by \texttt{func}, to the executor \texttt{s}. This is done by simply adding the task to the queue, and sending a new task to the parent executor: running the serial executor \texttt{run} function. Because the parent is an executor, it guarantees that this \texttt{run} function will be executed at some later point in time. Besides, this \texttt{run} function is private and only called by the \texttt{add} function in the serial executor class. We hence have that there will be exactly one execution of \texttt{run} for each call to \texttt{add}. 
 
 The \texttt{run} function is the one ensuring serial execution of the tasks, using the \texttt{scheduled\_} location. To explain how it works, it helps to think about what could have been an alternative implementation of this function. We could have simply used \texttt{scheduled\_} as a flag recording whether or not there is currently a task executing. The simplified code would have been the following
 
 \begin{lstlisting}
 void run(Executor s){
-	if(CAS_Acq(s.scheduled_, 0, 1)){
+	if(CAS_acq(s.scheduled_, 0, 1)){
 		while(!s.queue_.empty()){
 			func = s.queue.pop();
 			func()
 		}
-		CAS_Rel(s.scheduled_, 1, 0);
+		CAS_rel(s.scheduled_, 1, 0);
 	}
 }
 \end{lstlisting}
 
-We first try to set atomically \texttt{scheduled\_} to 1. If this succeeds, this is now the only \texttt{run()} task from the serial executor \texttt{s} that can be executed. Then as long as the queue is not empty, we keep executing one after the other all the tasks that were added to it. When none are left, the \texttt{run()} task releases the \texttt{scheduled\_} flag by setting it to 0. However, this function requires two calls to \texttt{queue\_} per loop execution. One checking if it is empty or not and the second popping an element\footnote{Note that here, there is no risk of having a non empty queue when the condition check is done, then its elements being removed by another thread before the \texttt{pop} is done. Indeed, as \texttt{scheduled\_} is set to one, only the current task can remove elements from the queue.}. The key remark here is that we can use scheduled to count the number of elements in the queue reliably. This is what is done in the \texttt{run} function shown in Figure~\ref{fig:simplSerialExec}.
+We first try to set atomically \texttt{scheduled\_} to 1. If this succeeds, this is now the only \texttt{run()} task from the serial executor \texttt{s} that can execute NT tasks. Then as long as the queue is not empty, we keep executing one after the other all the NT tasks that were added to it. When none are left, the \texttt{run()} task releases the \texttt{scheduled\_} flag by setting it to 0. However, this function requires two calls to \texttt{queue\_} per loop execution. One checking if it is empty or not and the second popping an element\footnote{Note that here, there is no risk of having a non empty queue when the condition check is done, then its elements being removed by another thread before the \texttt{pop} is done. Indeed, as \texttt{scheduled\_} is set to one, only the current task can remove elements from the queue.}. The key remark here is that we can use scheduled to count the number of elements in the queue reliably. This is what is done in the \texttt{run} function shown in Figure~\ref{fig:simplSerialExec}.
 
-Every time this function is called, it first increments \texttt{scheduled\_} by one. As \texttt{run} is called every time an element is added to the \texttt{queue\_} by the \texttt{add} function, \texttt{scheduled\_} records the number of elements in the queue. Now if \texttt{scheduled\_} was zero before the task incremented it, the task starts executing the tasks contained in \texttt{queue\_}. This is similar to the case where the \texttt{CAS\_Acq} on \texttt{scheduled\_} succeeded in the alternative implementation discussed above. Every time a task from \texttt{queue\_} is executed, \texttt{scheduled\_} is decreased by one. As \texttt{scheduled\_} tracks the number of elements in the queue, this ensures that we never try to pop from an empty queue\footnote{This is not trivial actually, it relies on the fact that no other thread can pop from the queue, and that due to the careful of ordering of actions on \texttt{scheduled\_} and \texttt{queue\_}, after the \texttt{fetch\_sub}, \texttt{scheduled\_} is smaller or equal to the number of elements in the queue.}. When \texttt{scheduled\_} reaches 0, that is to say when the value returned by \texttt{fetch\_sub} is 1, the task terminates. As in the alternative implementation shown above, \texttt{scheduled\_} has been set back to 0, allowing another \texttt{run()} task to start executing later.
+Every time this function is called, it first increments \texttt{scheduled\_} by one. As \texttt{run} is called every time an element is added to the \texttt{queue\_} by the \texttt{add} function, \texttt{scheduled\_} records the number of elements in the queue. Now if \texttt{scheduled\_} was zero before the task incremented it, the task starts executing the tasks contained in \texttt{queue\_}. This is similar to the case where the \texttt{CAS\_acq} on \texttt{scheduled\_} succeeded in the alternative implementation discussed above. Every time a task from \texttt{queue\_} is executed, \texttt{scheduled\_} is decreased by one. As \texttt{scheduled\_} tracks the number of elements in the queue, this ensures that we never try to pop from an empty queue\footnote{This is not trivial actually, it relies on the fact that no other thread can pop from the queue, and that due to the careful of ordering of actions on \texttt{scheduled\_} and \texttt{queue\_}, after the \texttt{fetch\_sub}, \texttt{scheduled\_} is smaller or equal to the number of elements in the queue.}. When \texttt{scheduled\_} reaches 0, that is to say when the value returned by \texttt{fetch\_sub} is 1, the task terminates. As in the alternative implementation shown above, \texttt{scheduled\_} has been set back to 0, allowing another \texttt{run()} task to start executing NT tasks later.
 
-We explained above the idea of the \texttt{run} function. Let us now develop on the precise synchronization mechanisms used. As we have seen, it is \texttt{scheduled\_} that allows execution to "pass" from one thread to another. For instance, imagine Thread 1 calls \texttt{run}. It does the first fetch and add, and sees that the former value was 0. It can hence start executing tasks. At some point, the fetch and sub brings \texttt{scheduled\_} back to 0. Thread 1 stops executing tasks. Then at some later point, Thread 2 calls \texttt{run}, and starts executing tasks. Here when Thread 2 takes over execution, we have to make sure that for any other observer thread, all the memory events done by Thread 1 as part of executing the tasks stay before all the memory actions Thread 2 will do. As Thread 1 used a fetch and sub release, we know that all events executed in Thread 1 before this fetch and sub will stay before the action that set \texttt{scheduled\_} to 0. Besides, as Thread 2 uses a fetch and add acquire, all events that are executed after this fetch and add cannot be re-ordered with it. We hence have the required synchronization:
+We explained above the idea of the \texttt{run} function. Let us now develop on the precise synchronization mechanisms used. As we have seen, it is \texttt{scheduled\_} that allows execution to "pass" from one thread to another. For instance, imagine Thread 1 calls \texttt{run}. It does the first fetch and add, and sees that the former value was 0. It can hence start executing NT tasks. At some point, the fetch and sub brings \texttt{scheduled\_} back to 0. Thread 1 stops executing NT tasks. Then at some later point, Thread 2 calls \texttt{run}, and starts executing tasks. Here when Thread 2 takes over execution, we have to make sure that for any other observer thread, all the memory events done by Thread 1 as part of executing the tasks stay before all the memory actions Thread 2 will do. As Thread 1 used a fetch and sub release, we know that all events executed in Thread 1 before this fetch and sub will stay before the action that set \texttt{scheduled\_} to 0. Besides, as Thread 2 uses a fetch and add acquire, all events that are executed after this fetch and add cannot be re-ordered with it. We hence have the required synchronization:
 \[
 				\{\text{Tasks 1}\} 
 				\xrightarrow{\text{release}} 
@@ -106,7 +106,7 @@ The functions \texttt{drop} and \texttt{copy} ensure that when all references to
 The only difference between this code and the one of the Rust ARC is in the \texttt{drop} function. In the Rust ARC, the code is the following (taken from \cite{fsl})
 
 \begin{lstlisting}
-int c = s.keepAliveCounter_.fetch_sub(1. release);
+int c = fetch_sub_rel(s.keepAliveCounter_, 1);
 if(c == 1){
 	fence_acq;
 	free(s);
@@ -127,7 +127,8 @@ The first property we want to show about this code, is that the \texttt{Serial\-
 If we manage to prove this simplification correct, we will have proven that there is no data race on the non atomic location \texttt{protected\_}. This means, by definition of a data race as given in Section~\ref{ch:background}, that all memory operations on \texttt{protected\_} are ordered by the happen-before relation, that is to say they are all executed serially, and not concurrently. This would then allow us to conclude that the synchronization in the \texttt{run} function is enough to ensure ordering of the all operations executed within the repeat loop: setting \texttt{protected\_} to some value \texttt{a}. If we were to replace this operation by any function execution, as is the case in the original Serial Executor code, we keep this property on ordering: the functions submitted to the Serial Executor are all executed serially. 
 
 \paragraph{Note:} One could think that proving the simplified code correct only shows that the Serial Executor provides serial execution of the write memory operations submitted to it, and not necessarily read operations. Indeed, we mentioned in Section~\ref{ch:background} that the release and acquire fences provide different ordering constraints to read and write operations. However, in the \texttt{run} function, the only synchronization operations are a release fetch and sub and an acquire fetch and add. Both of those operations do not discriminate between read and writes in the synchronization they provide, as shown in Figure~\ref{fig:readWrite}. Proving ordering of the write operations is hence enough to conclude on ordering of all memory operations, read and write alike.
-
+\newline
+\newline
 The second property we are interested in is a proper use of the queue: we need to make sure that at any point there is at most one consumer, while there can be many producers. To model this, we introduce two abstract predicates $\consQ$ and $\prodQ$. They are governed by the following properties:
 \begin{equation}
 		\frac{}{\{\mathsf{emp}\} \texttt{q = new Queue()} \{\mathsf{Consumer}(\texttt{q}) * \mathsf{Producer}(\texttt{q})\}} 

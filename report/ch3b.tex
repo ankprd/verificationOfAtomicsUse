@@ -9,8 +9,8 @@ Executor newSerialExecutor(Executor parent, Ress protected){
   s.protected_ = protected;
   s.parent_ = parent;
   s.queue_ = new Queue();
-  Store_Rel(s.scheduled_, 0);
-  Store_Rlx(s.keepAliveCounter_, 1);
+  store_rel(s.scheduled_, 0);
+  store_rlx(s.keepAliveCounter_, 1);
   return s;
 }
 
@@ -20,27 +20,27 @@ void add(int f, Executor s){
 }
 
 void run(Executor s){
-	c = s.scheduled_.fetch_add(1, acquire);
+	c = fetch_add_acq(s.scheduled_, 1);
 	if(c > 0) {}
 	else{
 		repeat (
 			a = s.queue_.dequeue();
 			s.protected_.set(a);
-			c = s.scheduled_.fetch_sub(1, release) > 1;
+			c = fetch_sub_rel(s.scheduled_, 1);
 			(c = 1)//return value of the expression within repeat
 		)
 	}
 }
 
 int drop(Executor s){
-	int c = s.keepAliveCounter_.fetch_sub(1, release_acquire);
+	int c = fetch_sub_acq(s.keepAliveCounter_, 1);
 	if(c == 1)
 		free(s);
 	return c;
 }
 
 Executor copy(Executor s){
-	s.keepAliveCounter_.fetch_add(1, relaxed);
+	fetch_add_rlx(s.keepAliveCounter, 1);
 	return s;
 }
 	\end{lstlisting}
@@ -54,7 +54,7 @@ Verifying our first property, that is to say that the executor guarantees serial
 
 Verifying the second property simply requires showing that when calling \texttt{s.queue\_.dequeue()}, a thread holds the assertion $\consQ$, and when calling \texttt{s.queue\_.enqueue()} it holds $\prodQ$.
 
-Finally, to show that \texttt{keepAliveCounter\_} works as expected, we need to show that there exists a predicate $\mathsf{SE_{\lambda}(s)}$ such that the function specifications shown in Figure~\ref{fig:seFctSpec} hold. This predicate is parameterized by a ghost location we will define in further detail later. For the sake of simplicity, we remove the dependency on the \texttt{protected} location from this predicate.
+Finally, to show that \texttt{keepAliveCounter\_} works as expected, we need to show that there exists a predicate $\mathsf{SE_{\gamma}(s)}$ such that the function specifications shown in Figure~\ref{fig:seFctSpec} hold. This predicate is parameterized by a ghost location we will define in further detail later. For the sake of simplicity, we remove the dependency on the \texttt{protected} location from this predicate.
 
 \begin{figure}
 \[
